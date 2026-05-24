@@ -69,7 +69,7 @@ pip install -r requirements.txt
    ```bash
    pip install -r requirements.txt
    ```
-
+Note- If Error Occurs after Pip installation and libraries are not found then read -Commands.txt File.
 4. Start the Tor service:
 
    - On Linux/macOS:
@@ -84,7 +84,7 @@ pip install -r requirements.txt
 
 ## Installation through the provided bash script on Linux
 
-1. Download the setup file from https://github.com/Ignoble-Immortal/Heckers-Darkweb-OSINT/blob/master/setup_darkweb_osint.sh
+1. Download the setup file from [https://github.com/Sinisteroftheallvalley/Enumeration-Onion/blob/master/setup_darkweb_osint.sh]
 
 2. Open terminal where the file downloaded, make the file an executable and run it:
 
