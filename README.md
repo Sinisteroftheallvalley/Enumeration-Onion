@@ -1,4 +1,4 @@
-# Heckers' Darkweb OSINT Crawler
+# Enumeration-Onion
 
 ## Overview
 
@@ -124,13 +124,7 @@ python3 main.py http://exampleonionaddress.onion
 
 ---
 
-## Screenshots
 
-![Dashboard Screenshot](https://github.com/user-attachments/assets/ae148de2-2005-4f20-bba2-cbcd00197d0c)
-
-![Crawler Screenshot](https://github.com/user-attachments/assets/a673e7aa-2ce4-434d-abaf-da530b59b955)
-
----
 
 ## YouTube Demo Preview
 
