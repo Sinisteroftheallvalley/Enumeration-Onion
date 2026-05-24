@@ -1,0 +1,26 @@
+Open Terminal and Terminator on kali 
+on terminal -
+Tor (let it finish to 100% bootstrapped)
+
+On terminator - 
+cd Enumeration-Onion
+cd darkweb-osint
+source venv/bin/activate 
+python3 main.py onion link (copy onion link from tor)
+
+
+
+In case an error occurs - 
+Selenium webimport error
+
+
+Solution - Reset Venv environment 
+In venv-
+deactivate 
+rm -rf venv ( will remove venv folder and will force delete entire contents in it )
+python3 -m venv venv (create venv folder from pythons venv module )
+source venv/bin/activate
+pip install --upgrade pip setuptools wheel (will upgrade pip command )
+pip install -r requirements.txt
+
+Then python3 main.py onion link
