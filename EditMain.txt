@@ -1,0 +1,511 @@
+import os
+import sys
+import json
+import logging
+import threading
+import time
+from datetime import datetime
+from flask import Flask, render_template_string, send_from_directory
+from core import analyzer, threat_feed
+from core.utils import is_valid_onion_url, normalize_url
+from core.crawler import TorCrawler
+from config import KEYWORDS
+
+os.makedirs("outputs", exist_ok=True)
+os.makedirs("data/logs", exist_ok=True)
+logging.basicConfig(filename="data/logs/activity.log", level=logging.INFO, format='%(asctime)s %(levelname)s:%(message)s')
+
+RESULTS_FILE = 'outputs/results.json'
+
+app = Flask(__name__)
+
+TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Onion Link Enumeration</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e6edf3;
+            padding: 30px 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1f3a 0%, #2d1b4e 100%);
+            padding: 40px;
+            border-radius: 16px;
+            margin-bottom: 35px;
+            border: 1px solid rgba(88, 166, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 40px rgba(88, 166, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(88, 166, 255, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .header h1 {
+            font-size: 42px;
+            background: linear-gradient(135deg, #58a6ff 0%, #79c0ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            color: #8b949e;
+            font-size: 16px;
+            margin: 0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            background: rgba(88, 166, 255, 0.1);
+            border: 1px solid rgba(88, 166, 255, 0.3);
+            color: #79c0ff;
+            font-size: 13px;
+            margin-top: 15px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            box-shadow: 0 4px 12px rgba(88, 166, 255, 0.1);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 25px;
+            margin-bottom: 35px;
+        }
+
+        .card {
+            background: linear-gradient(135deg, rgba(45, 27, 78, 0.8) 0%, rgba(30, 20, 50, 0.8) 100%);
+            border: 1px solid rgba(88, 166, 255, 0.15);
+            border-radius: 14px;
+            padding: 28px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 20px rgba(88, 166, 255, 0.05);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, rgba(88, 166, 255, 0.5), transparent);
+        }
+
+        .card:hover {
+            border-color: rgba(88, 166, 255, 0.4);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 30px rgba(88, 166, 255, 0.15);
+            transform: translateY(-4px);
+        }
+
+        .card h2 {
+            font-size: 14px;
+            color: #8b949e;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .card p {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #58a6ff 0%, #79c0ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .table-container {
+            background: linear-gradient(135deg, rgba(22, 27, 34, 0.6) 0%, rgba(30, 20, 50, 0.6) 100%);
+            border-radius: 16px;
+            border: 1px solid rgba(88, 166, 255, 0.15);
+            padding: 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px rgba(88, 166, 255, 0.05);
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: linear-gradient(90deg, rgba(45, 27, 78, 0.9) 0%, rgba(30, 20, 50, 0.9) 100%);
+        }
+
+        th {
+            color: #79c0ff;
+            padding: 18px 16px;
+            text-align: left;
+            border-bottom: 2px solid rgba(88, 166, 255, 0.2);
+            font-weight: 700;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        td {
+            padding: 16px;
+            border-bottom: 1px solid rgba(88, 166, 255, 0.08);
+            vertical-align: middle;
+        }
+
+        tbody tr {
+            transition: all 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(88, 166, 255, 0.08);
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        a {
+            color: #58a6ff;
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            word-break: break-all;
+        }
+
+        a:hover {
+            color: #79c0ff;
+            text-decoration: underline;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-active {
+            background: rgba(63, 185, 80, 0.2);
+            color: #3fb950;
+            border: 1px solid rgba(63, 185, 80, 0.4);
+        }
+
+        .status-inactive {
+            background: rgba(248, 81, 73, 0.2);
+            color: #f85149;
+            border: 1px solid rgba(248, 81, 73, 0.4);
+        }
+
+        .blacklisted {
+            background: rgba(248, 81, 73, 0.2);
+            color: #ff7b72;
+            border: 1px solid rgba(248, 81, 73, 0.4);
+        }
+
+        .safe {
+            background: rgba(63, 185, 80, 0.2);
+            color: #3fb950;
+            border: 1px solid rgba(63, 185, 80, 0.4);
+        }
+
+        img {
+            width: 200px;
+            border-radius: 12px;
+            border: 2px solid rgba(88, 166, 255, 0.2);
+            transition: all 0.3s ease;
+            cursor: zoom-in;
+        }
+
+        img:hover {
+            transform: scale(1.05);
+            border-color: rgba(88, 166, 255, 0.5);
+            box-shadow: 0 8px 24px rgba(88, 166, 255, 0.2);
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding: 25px;
+            text-align: center;
+            color: #8b949e;
+            font-size: 14px;
+            border-top: 1px solid rgba(88, 166, 255, 0.1);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #8b949e;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 25px;
+            }
+
+            .header h1 {
+                font-size: 28px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            img {
+                width: 140px;
+            }
+        }
+
+    </style>
+
+    <meta http-equiv="refresh" content="10">
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <div class="header-content">
+            <h1> Onion Link Enumeration Dashboard</h1>
+            <p>Advanced Darkweb Intelligence & OSINT Monitoring Platform</p>
+            <div class="badge">⚡ Auto Refresh: 10 Seconds</div>
+        </div>
+    </div>
+
+    <div class="stats">
+        <div class="card">
+            <h2> Total Results</h2>
+            <p>{{ results|length }}</p>
+        </div>
+
+        <div class="card">
+            <h2> Active Pages</h2>
+            <p>{{ results|selectattr('active')|list|length }}</p>
+        </div>
+
+        <div class="card">
+            <h2> Blacklisted</h2>
+            <p>{{ results|selectattr('blacklisted')|list|length }}</p>
+        </div>
+    </div>
+
+    <div class="table-container">
+        {% if results %}
+        <table>
+
+            <thead>
+                <tr>
+                    <th> URL</th>
+                    <th> Status</th>
+                    <th> Threat Level</th>
+                    <th> Keywords</th>
+                    <th> Title</th>
+                    <th> Screenshot</th>
+                    <th> Timestamp (UTC)</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% for entry in results %}
+                <tr>
+
+                    <td>
+                        <a href="{{ entry.url }}" target="_blank" title="{{ entry.url }}">
+                            {{ entry.url }}
+                        </a>
+                    </td>
+
+                    <td>
+                        {% if entry.active %}
+                            <span class="status-badge status-active">● ACTIVE</span>
+                        {% else %}
+                            <span class="status-badge status-inactive">● OFFLINE</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        {% if entry.blacklisted %}
+                            <span class="status-badge blacklisted">⛔ BLACKLISTED</span>
+                        {% else %}
+                            <span class="status-badge safe">✓ CLEAR</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <span style="color: #79c0ff;">{{ entry.keywords_found | join(', ') if entry.keywords_found else '—' }}</span>
+                    </td>
+
+                    <td>
+                        {{ entry.metadata.title if entry.metadata.title else '—' }}
+                    </td>
+
+                    <td>
+                        {% if entry.screenshot and entry.active %}
+                        <a href="/screenshots/{{ entry.screenshot_filename }}" target="_blank">
+                            <img src="/screenshots/{{ entry.screenshot_filename }}" alt="screenshot">
+                        </a>
+                        {% else %}
+                            <span style="color: #8b949e;">—</span>
+                        {% endif %}
+                    </td>
+
+                    <td style="font-size: 12px; color: #8b949e;">{{ entry.timestamp }}</td>
+
+                </tr>
+                {% endfor %}
+
+            </tbody>
+
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>🔍 No results yet. Crawling in progress...</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        Obsidian Investigation Dashboard • Advanced Darkweb OSINT Monitoring System
+    </div>
+
+</div>
+
+</body>
+</html>
+'''
+@app.route('/')
+def index():
+    results = []
+    if os.path.exists(RESULTS_FILE):
+        with open(RESULTS_FILE, 'r') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    entry['active'] = bool(entry.get('keywords_found') or entry.get('metadata', {}).get('title'))
+                    entry['screenshot_filename'] = os.path.basename(entry.get('screenshot', ''))
+                    results.append(entry)
+                except json.JSONDecodeError:
+                    continue
+    return render_template_string(TEMPLATE, results=results)
+
+@app.route('/screenshots/<path:filename>')
+def screenshots(filename):
+    return send_from_directory('outputs', filename)
+
+def run_dashboard():
+    print("Starting Flask dashboard at http://127.0.0.1:5000")
+    app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+
+def handle_page(url, html):
+    logging.info(f"Analyzing {url}")
+    matched = analyzer.search_keywords(html, KEYWORDS)
+    meta = analyzer.extract_metadata(html)
+    is_malicious = threat_feed.check_blacklist(url)
+    screenshot_path = f"outputs/{url.split('//')[-1].replace('/', '_')}.png"
+
+    # Use crawler's screenshot method to reuse driver
+    success = crawler.capture_screenshot(url, screenshot_path)
+    if not success:
+        logging.warning(f"Failed to capture screenshot for {url}")
+
+    result = {
+        'url': url,
+        'keywords_found': list(matched.keys()),
+        'metadata': meta,
+        'blacklisted': is_malicious,
+        'screenshot': screenshot_path if success else '',
+        'timestamp': datetime.utcnow().isoformat()
+    }
+
+    with open(RESULTS_FILE, 'a') as f:
+        f.write(json.dumps(result) + '\n')
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <start_onion_url>")
+        sys.exit(1)
+
+    start_url = sys.argv[1]
+    if not is_valid_onion_url(start_url):
+        print("[!] Invalid .onion URL.")
+        sys.exit(1)
+
+    if os.path.exists(RESULTS_FILE):
+        os.remove(RESULTS_FILE)
+
+    # Start Flask dashboard in background thread
+    dashboard_thread = threading.Thread(target=run_dashboard, daemon=True)
+    dashboard_thread.start()
+
+    normalized_start_url = normalize_url(start_url)
+    crawler = TorCrawler()
+    try:
+        crawler.crawl(normalized_start_url, 0, handle_page)
+    finally:
+        crawler.close()
+
+    print("[✓] Crawling completed. Dashboard running at http://127.0.0.1:5000")
+    logging.info("Crawling completed.")
+    # Keep main thread alive to keep dashboard running
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        logging.info("Exiting on user interrupt.")
+        crawler.close()
+        sys.exit(0)
