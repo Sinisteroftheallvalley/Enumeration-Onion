@@ -1,5 +1,27 @@
 # Enumeration-Onion
 
+
+
+Team Details 
+Team Leader Name - Nishant Dinesh R. (2210990617)
+Team Member1 - Geetansh Sood (2210990323)
+Team Member2 - Gautam Nagpal (2210990321)
+Team Member3 - Lovisha       (2210990549)
+Tech Stack --  Tor Network , Selenium , Flask , BeautifulSoup, Lxml, Python3 , Geckodriver, Stem
+Current Status - Completed
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## Overview
 
 This project is a Tor-based dark web crawler designed for authorized penetration testing and open-source intelligence (OSINT) gathering. It autonomously accesses and navigates `.onion` websites on the Tor network, detects active pages, captures real-time screenshots, and provides a live dashboard for monitoring crawl results.
